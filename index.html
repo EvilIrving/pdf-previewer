@@ -22,7 +22,7 @@
             display: none;
         }
 
-        .scrollbar-thin::-webkit-scrollbar {
+        /* .scrollbar-thin::-webkit-scrollbar {
             width: 6px;
             height: 6px;
         }
@@ -37,7 +37,7 @@
 
         .dark .scrollbar-thin::-webkit-scrollbar-thumb {
             background: #475569;
-        }
+        } */
 
         .tree-item {
             transition: background-color 0.15s ease;
@@ -70,16 +70,28 @@
                                 </svg>
                             </button>
                         </div>
-                        <label
-                            class="flex items-center justify-center gap-2 px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded cursor-pointer transition-colors">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                            </svg>
-                            <span>选择文件夹</span>
-                            <input type="file" webkitdirectory directory multiple @change="handleFolderSelect"
-                                class="hidden">
-                        </label>
+                        <div class="space-y-2">
+                            <label
+                                class="flex items-center justify-center gap-2 px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded cursor-pointer transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                </svg>
+                                <span>选择文件夹</span>
+                                <input type="file" webkitdirectory directory multiple @change="handleFolderSelect"
+                                    class="hidden">
+                            </label>
+                            <label
+                                class="flex items-center justify-center gap-2 px-3 py-2 bg-slate-500 hover:bg-slate-600 text-white rounded cursor-pointer transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                <span>选择文件</span>
+                                <input type="file" accept=".pdf" multiple @change="handleFileSelect"
+                                    class="hidden">
+                            </label>
+                        </div>
                     </div>
 
                     <!-- File Tree -->
@@ -171,11 +183,8 @@
                                     d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                             </svg>
                             <p class="text-lg font-medium mb-2">欢迎使用 PDF Viewer</p>
-                            <p class="text-slate-500 dark:text-slate-400 text-sm">选择一个 PDF 文件开始浏览</p>
-                            <div class="mt-6 text-xs text-slate-400 dark:text-slate-500 text-center">
-                                <p class="mb-1">提示：请通过本地服务器运行此应用</p>
-                                <code class="bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">npx serve .</code>
-                            </div>
+                            <p class="text-slate-500 dark:text-slate-400 text-sm">选择一个文件夹 或者 PDF 文件开始浏览</p>
+                            
                         </div>
 
                         <!-- Loading State -->
@@ -200,8 +209,11 @@
                         <!-- PDF Pages -->
                         <div v-if="selectedFile && !isLoading && !error" class="p-4">
                             <div v-for="page in pages" :key="page.num" :data-page="page.num"
-                                class="pdf-page flex justify-center mb-4">
-                                <canvas :ref="el => setCanvasRef(page.num, el)" class="shadow-lg bg-white"></canvas>
+                                class="pdf-page flex justify-center mb-4"
+                                :style="{ minHeight: page.height ? page.height + 'px' : 'auto' }">
+                                <canvas :ref="el => setCanvasRef(page.num, el)" 
+                                    class="shadow-lg bg-white"
+                                    :style="{ width: page.width ? page.width + 'px' : 'auto', height: page.height ? page.height + 'px' : 'auto' }"></canvas>
                             </div>
                         </div>
                     </div>
@@ -289,6 +301,9 @@
                 let baseScale = 1;
                 let currentPdfDoc = null;
                 const renderTasks = new Map();
+                const renderedPages = new Set(); // 已渲染的页面
+                const readingPositionCache = new Map(); // 内存缓存阅读位置
+                let intersectionObserver = null;
 
                 // Storage key for reading position
                 const getStorageKey = (filePath) => `pdf-reader:${filePath}`;
@@ -296,34 +311,25 @@
                 // Save reading position
                 const saveReadingPosition = () => {
                     if (!selectedFile.value) return;
-                    const key = getStorageKey(selectedFile.value.path);
                     const position = {
                         page: currentPage.value,
                         scrollY: previewContainer.value?.scrollTop || 0
                     };
-                    localStorage.setItem(key, JSON.stringify(position));
+                    // 同时保存到内存缓存和 localStorage
+                    readingPositionCache.set(selectedFile.value.path, position);
+                    localStorage.setItem(getStorageKey(selectedFile.value.path), JSON.stringify(position));
                 };
 
-                // Load reading position
-                const loadReadingPosition = () => {
-                    if (!selectedFile.value) return null;
-                    const key = getStorageKey(selectedFile.value.path);
+                // Load reading position (优先从内存缓存读取)
+                const loadReadingPosition = (filePath) => {
+                    // 优先从内存缓存读取（同会话内即时恢复）
+                    if (readingPositionCache.has(filePath)) {
+                        return readingPositionCache.get(filePath);
+                    }
+                    // 然后从 localStorage 读取（跨会话恢复）
+                    const key = getStorageKey(filePath);
                     const saved = localStorage.getItem(key);
                     return saved ? JSON.parse(saved) : null;
-                };
-
-                // Restore reading position
-                const restoreReadingPosition = async () => {
-                    const position = loadReadingPosition();
-                    if (!position || !previewContainer.value) return;
-                    
-                    // Wait for next tick and multiple animation frames to ensure all content is rendered
-                    await nextTick();
-                    await new Promise(resolve => requestAnimationFrame(resolve));
-                    await new Promise(resolve => requestAnimationFrame(resolve));
-                    
-                    previewContainer.value.scrollTop = position.scrollY;
-                    currentPage.value = position.page;
                 };
 
                 // Set canvas ref
@@ -417,6 +423,41 @@
                     }
                 };
 
+                // Handle direct file selection
+                const handleFileSelect = (event) => {
+                    const files = event.target.files;
+                    if (!files || files.length === 0) return;
+
+                    // Filter PDF files
+                    const pdfFilesArr = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.pdf'));
+                    if (pdfFilesArr.length === 0) {
+                        error.value = '未找到 PDF 文件';
+                        return;
+                    }
+
+                    // Build simple file tree (flat list without folder hierarchy)
+                    fileTree.value = pdfFilesArr.map((file, index) => ({
+                        type: 'file',
+                        name: file.name,
+                        path: file.name,
+                        file: file
+                    }));
+
+                    // Update pdfFiles ref for navigation
+                    pdfFiles.value = pdfFilesArr;
+                    selectedFile.value = null;
+                    error.value = null;
+
+                    // Auto-select first PDF
+                    const firstPdf = pdfFilesArr[0];
+                    selectFile({
+                        type: 'file',
+                        name: firstPdf.name,
+                        path: firstPdf.name,
+                        file: firstPdf
+                    });
+                };
+
                 // Select file
                 const selectFile = async (item) => {
                     if (item.type !== 'file') return;
@@ -434,14 +475,24 @@
                 const loadPdf = async (file) => {
                     isLoading.value = true;
                     error.value = null;
+                    
+                    // 在清空页面前获取保存的阅读位置
+                    const savedPosition = loadReadingPosition(selectedFile.value?.path);
+                    
                     pages.value = [];
-                    currentPage.value = 1;
+                    renderedPages.clear();
+                    currentPage.value = savedPosition?.page || 1;
 
                     // Cancel any ongoing render tasks
                     renderTasks.forEach((task) => {
                         task.cancel();
                     });
                     renderTasks.clear();
+                    
+                    // 断开之前的 observer
+                    if (intersectionObserver) {
+                        intersectionObserver.disconnect();
+                    }
 
                     // Cleanup previous document
                     if (currentPdfDoc) {
@@ -457,28 +508,39 @@
                         currentPdfDoc = pdf;
                         totalPages.value = pdf.numPages;
 
-                        // Create page placeholders
-                        pages.value = Array.from({ length: pdf.numPages }, (_, i) => ({
-                            num: i + 1
-                        }));
-
-                        // Turn off loading FIRST so canvas elements can render
-                        isLoading.value = false;
-
-                        // Wait for DOM update and layout
-                        await nextTick();
-                        await new Promise(resolve => requestAnimationFrame(resolve));
-                        
                         // Detect fit mode and calculate base scale
                         fitMode.value = await detectFitMode();
                         baseScale = await calculateBaseScale(1, fitMode.value);
 
-                        // Render all pages
-                        await renderAllPages();
-                        
-                        // Restore reading position after all pages are rendered
+                        // 预计算所有页面尺寸，创建带正确高度的占位符
+                        const pagesWithSize = [];
+                        for (let i = 1; i <= pdf.numPages; i++) {
+                            const page = await pdf.getPage(i);
+                            const viewport = page.getViewport({ scale: baseScale * scaleMultiplier.value });
+                            pagesWithSize.push({
+                                num: i,
+                                width: viewport.width,
+                                height: viewport.height
+                            });
+                        }
+                        pages.value = pagesWithSize;
+
+                        // Turn off loading FIRST so canvas elements can render
+                        isLoading.value = false;
+
+                        // Wait for DOM update
                         await nextTick();
-                        await restoreReadingPosition();
+                        
+                        // 立即滚动到保存的位置（在渲染之前）
+                        if (savedPosition && previewContainer.value) {
+                            previewContainer.value.scrollTop = savedPosition.scrollY;
+                        }
+                        
+                        // 设置 Intersection Observer 进行懒加载
+                        setupIntersectionObserver();
+                        
+                        // 强制触发一次可视区域检测，渲染当前可见的页面
+                        await renderVisiblePages();
 
                     } catch (err) {
                         console.error('PDF load error:', err);
@@ -523,9 +585,66 @@
                     }
                 };
 
+                // Setup Intersection Observer for lazy loading
+                const setupIntersectionObserver = () => {
+                    if (intersectionObserver) {
+                        intersectionObserver.disconnect();
+                    }
+                    
+                    intersectionObserver = new IntersectionObserver(
+                        (entries) => {
+                            entries.forEach(entry => {
+                                if (entry.isIntersecting) {
+                                    const pageNum = parseInt(entry.target.dataset.page);
+                                    if (pageNum && !renderedPages.has(pageNum)) {
+                                        renderPage(pageNum);
+                                    }
+                                }
+                            });
+                        },
+                        {
+                            root: previewContainer.value,
+                            rootMargin: '200px 0px', // 提前 200px 开始渲染
+                            threshold: 0
+                        }
+                    );
+                    
+                    // 观察所有页面容器
+                    document.querySelectorAll('.pdf-page').forEach(el => {
+                        intersectionObserver.observe(el);
+                    });
+                };
+
+                // Render only visible pages
+                const renderVisiblePages = async () => {
+                    const container = previewContainer.value;
+                    if (!container) return;
+                    
+                    const containerRect = container.getBoundingClientRect();
+                    const pageElements = document.querySelectorAll('.pdf-page');
+                    
+                    const renderPromises = [];
+                    
+                    pageElements.forEach(el => {
+                        const rect = el.getBoundingClientRect();
+                        const isVisible = rect.bottom > containerRect.top - 200 && 
+                                         rect.top < containerRect.bottom + 200;
+                        
+                        if (isVisible) {
+                            const pageNum = parseInt(el.dataset.page);
+                            if (pageNum && !renderedPages.has(pageNum)) {
+                                renderPromises.push(renderPage(pageNum));
+                            }
+                        }
+                    });
+                    
+                    await Promise.all(renderPromises);
+                };
+
                 // Render a single page
                 const renderPage = async (pageNum) => {
                     if (!currentPdfDoc) return;
+                    if (renderedPages.has(pageNum)) return; // 已渲染过则跳过
 
                     // Cancel any existing render task for this page
                     const existingTask = renderTasks.get(pageNum);
@@ -537,6 +656,8 @@
                     if (!canvas) return;
 
                     try {
+                        renderedPages.add(pageNum); // 标记为正在渲染
+                        
                         const page = await currentPdfDoc.getPage(pageNum);
                         const scale = baseScale * scaleMultiplier.value;
                         const viewport = page.getViewport({ scale });
@@ -567,18 +688,13 @@
 
                     } catch (err) {
                         if (err.message && err.message.includes('cancelled')) {
+                            renderedPages.delete(pageNum); // 取消的任务需要移除标记
                             return;
                         }
                         console.error(`Error rendering page ${pageNum}:`, err);
+                        renderedPages.delete(pageNum); // 失败的任务需要移除标记
                     } finally {
                         renderTasks.delete(pageNum);
-                    }
-                };
-
-                // Render all pages
-                const renderAllPages = async () => {
-                    for (let i = 1; i <= totalPages.value; i++) {
-                        await renderPage(i);
                     }
                 };
 
@@ -588,7 +704,26 @@
                         task.cancel();
                     });
                     renderTasks.clear();
-                    await renderAllPages();
+                    renderedPages.clear(); // 清空已渲染标记
+                    
+                    // 重新计算页面尺寸
+                    if (currentPdfDoc) {
+                        const pagesWithSize = [];
+                        for (let i = 1; i <= currentPdfDoc.numPages; i++) {
+                            const page = await currentPdfDoc.getPage(i);
+                            const viewport = page.getViewport({ scale: baseScale * scaleMultiplier.value });
+                            pagesWithSize.push({
+                                num: i,
+                                width: viewport.width,
+                                height: viewport.height
+                            });
+                        }
+                        pages.value = pagesWithSize;
+                        
+                        await nextTick();
+                        setupIntersectionObserver();
+                        await renderVisiblePages();
+                    }
                 };
 
                 // Handle scroll to update current page and save position
@@ -614,7 +749,12 @@
                     });
 
                     currentPage.value = closestPage;
-                    saveReadingPosition();
+                    
+                    // 使用防抖保存位置
+                    clearTimeout(handleScroll._saveTimer);
+                    handleScroll._saveTimer = setTimeout(() => {
+                        saveReadingPosition();
+                    }, 100);
                 };
 
                 // Zoom controls
@@ -739,6 +879,7 @@
                     previewContainer,
                     setCanvasRef,
                     handleFolderSelect,
+                    handleFileSelect,
                     selectFile,
                     fitMode,
                     zoomIn,
