@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Viewer</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {}
+            }
+        }
+    </script>
+    <style>
+        [v-cloak] {
+            display: none;
+        }
+
+        .scrollbar-thin::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        .scrollbar-thin::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .scrollbar-thin::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+        }
+
+        .dark .scrollbar-thin::-webkit-scrollbar-thumb {
+            background: #475569;
+        }
+
+        .tree-item {
+            transition: background-color 0.15s ease;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app" v-cloak>
+        <div :class="{ 'dark': isDark }" class="h-screen">
+            <div class="flex h-full bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200">
+                <!-- Sidebar -->
+                <aside :class="sidebarCollapsed ? 'w-0 overflow-hidden' : 'w-64'"
+                    class="flex-shrink-0 bg-slate-100 dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col transition-all duration-300">
+                    <!-- Sidebar Header -->
+                    <div class="p-3 border-b border-slate-200 dark:border-slate-700">
+                        <div class="flex items-center justify-between mb-3">
+                            <span class="font-semibold text-sm">PDF Viewer</span>
+                            <button @click="isDark = !isDark"
+                                class="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                                :title="isDark ? '切换浅色模式' : '切换深色模式'">
+                                <svg v-if="isDark" class="w-4 h-4" fill="none" stroke="currentColor"
+                                    viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                                </svg>
+                                <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                                </svg>
+                            </button>
+                        </div>
+                        <label
+                            class="flex items-center justify-center gap-2 px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded cursor-pointer transition-colors">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                            </svg>
+                            <span>选择文件夹</span>
+                            <input type="file" webkitdirectory directory multiple @change="handleFolderSelect"
+                                class="hidden">
+                        </label>
+                    </div>
+
+                    <!-- File Tree -->
+                    <div class="flex-1 overflow-y-auto scrollbar-thin p-2">
+                        <template v-if="fileTree.length > 0">
+                            <tree-item v-for="item in fileTree" :key="item.path" :item="item"
+                                :selected-path="selectedFile?.path" :depth="0" @select="selectFile" />
+                        </template>
+                        <div v-else class="text-center text-slate-400 dark:text-slate-500 py-8">
+                            <p>暂无文件</p>
+                            <p class="text-xs mt-1">请选择包含 PDF 的文件夹</p>
+                        </div>
+                    </div>
+
+                    <!-- Sidebar Footer -->
+                    <div v-if="pdfFiles.length > 0"
+                        class="p-3 border-t border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400">
+                        共 {{ pdfFiles.length }} 个 PDF 文件
+                    </div>
+                </aside>
+
+                <!-- Main Content -->
+                <main class="flex-1 flex flex-col min-w-0">
+                    <!-- Toggle Sidebar Button (when collapsed) -->
+                    <button v-if="sidebarCollapsed" @click="sidebarCollapsed = false"
+                        class="absolute top-3 left-3 z-10 p-2 bg-slate-100 dark:bg-slate-800 rounded hover:bg-slate-200 dark:hover:bg-slate-700">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                        </svg>
+                    </button>
+
+                    <!-- Toolbar -->
+                    <div v-if="selectedFile"
+                        class="flex items-center justify-between px-4 py-2 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <button @click="sidebarCollapsed = !sidebarCollapsed"
+                                class="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                                </svg>
+                            </button>
+                            <span class="truncate text-sm font-medium">{{ selectedFile.name }}</span>
+                        </div>
+
+                        <!-- Zoom Controls -->
+                        <div class="flex items-center gap-1">
+                            <button @click="zoomOut" :disabled="scaleMultiplier <= 0.5"
+                                class="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="缩小 (-)">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M20 12H4" />
+                                </svg>
+                            </button>
+                            <span class="text-sm w-16 text-center">{{ Math.round(scaleMultiplier * 100) }}%</span>
+                            <button @click="zoomIn" :disabled="scaleMultiplier >= 2"
+                                class="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="放大 (+)">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M12 4v16m8-8H4" />
+                                </svg>
+                            </button>
+                            <button @click="resetZoom"
+                                class="ml-2 px-2 py-1 text-xs rounded hover:bg-slate-100 dark:hover:bg-slate-700"
+                                title="重置缩放">
+                                {{ fitMode === 'page' ? '适应页面' : '适应宽度' }}
+                            </button>
+                        </div>
+
+                        <!-- Page Info -->
+                        <div class="text-sm text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                            <span>第 {{ currentPage }} / {{ totalPages }} 页</span>
+                        </div>
+                    </div>
+
+                    <!-- PDF Preview Area -->
+                    <div ref="previewContainer"
+                        class="flex-1 overflow-y-auto scrollbar-thin bg-slate-200 dark:bg-slate-950"
+                        @scroll="handleScroll">
+                        <!-- Empty State -->
+                        <div v-if="!selectedFile && !isLoading"
+                            class="flex flex-col items-center justify-center h-full p-8">
+                            <svg class="w-20 h-20 mb-4 text-slate-300 dark:text-slate-600" fill="none"
+                                stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <p class="text-lg font-medium mb-2">欢迎使用 PDF Viewer</p>
+                            <p class="text-slate-500 dark:text-slate-400 text-sm">选择一个 PDF 文件开始浏览</p>
+                            <div class="mt-6 text-xs text-slate-400 dark:text-slate-500 text-center">
+                                <p class="mb-1">提示：请通过本地服务器运行此应用</p>
+                                <code class="bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">npx serve .</code>
+                            </div>
+                        </div>
+
+                        <!-- Loading State -->
+                        <div v-if="isLoading" class="flex flex-col items-center justify-center h-full">
+                            <div
+                                class="animate-spin rounded-full h-12 w-12 border-4 border-slate-200 dark:border-slate-700 border-t-blue-500">
+                            </div>
+                            <p class="text-slate-500 dark:text-slate-400 mt-4">加载中...</p>
+                        </div>
+
+                        <!-- Error State -->
+                        <div v-if="error && !isLoading" class="flex flex-col items-center justify-center h-full">
+                            <svg class="w-16 h-16 mb-4 text-red-400" fill="none" stroke="currentColor"
+                                viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <p class="font-medium mb-2">加载失败</p>
+                            <p class="text-sm text-slate-500 dark:text-slate-400">{{ error }}</p>
+                        </div>
+
+                        <!-- PDF Pages -->
+                        <div v-if="selectedFile && !isLoading && !error" class="p-4">
+                            <div v-for="page in pages" :key="page.num" :data-page="page.num"
+                                class="pdf-page flex justify-center mb-4">
+                                <canvas :ref="el => setCanvasRef(page.num, el)" class="shadow-lg bg-white"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tree Item Component Template -->
+    <template id="tree-item-template">
+        <div>
+            <!-- Folder -->
+            <div v-if="item.type === 'folder'"
+                class="tree-item flex items-center gap-1 px-2 py-1 rounded cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700"
+                :style="{ paddingLeft: (depth * 12 + 8) + 'px' }" @click="item.expanded = !item.expanded">
+                <svg class="w-4 h-4 flex-shrink-0 transition-transform" :class="{ 'rotate-90': item.expanded }"
+                    fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                </svg>
+                <svg class="w-4 h-4 flex-shrink-0 text-yellow-500" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                </svg>
+                <span class="truncate">{{ item.name }}</span>
+            </div>
+
+            <!-- Folder Children -->
+            <div v-if="item.type === 'folder' && item.expanded">
+                <tree-item v-for="child in item.children" :key="child.path" :item="child" :selected-path="selectedPath"
+                    :depth="depth + 1" @select="$emit('select', $event)" />
+            </div>
+
+            <!-- File -->
+            <div v-if="item.type === 'file'"
+                class="tree-item flex items-center gap-1 px-2 py-1 rounded cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700"
+                :class="selectedPath === item.path ? 'bg-blue-100 dark:bg-blue-900' : ''"
+                :style="{ paddingLeft: (depth * 12 + 8) + 'px' }" @click="$emit('select', item)">
+                <svg class="w-4 h-4 flex-shrink-0 text-red-500" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" />
+                </svg>
+                <span class="truncate" :title="item.name">{{ item.name }}</span>
+            </div>
+        </div>
+    </template>
+
+    <!-- PDF.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.6.347/pdf.min.js"></script>
+    <script type="module">
+        // Set PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.6.347/pdf.worker.min.js';
+
+        const { createApp, ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } = Vue;
+
+        // Tree Item Component
+        const TreeItem = {
+            name: 'TreeItem',
+            template: '#tree-item-template',
+            props: {
+                item: Object,
+                selectedPath: String,
+                depth: { type: Number, default: 0 }
+            },
+            emits: ['select']
+        };
+
+        const app = createApp({
+            components: { TreeItem },
+
+            setup() {
+                // State
+                const pdfFiles = ref([]);
+                const fileTree = ref([]);
+                const selectedFile = ref(null);
+                const pages = ref([]);
+                const scaleMultiplier = ref(1);
+                const currentPage = ref(1);
+                const fitMode = ref('width'); // 'width' | 'page'
+                const totalPages = ref(0);
+                const isDark = ref(false);
+                const isLoading = ref(false);
+                const error = ref(null);
+                const sidebarCollapsed = ref(false);
+                const previewContainer = ref(null);
+                const canvasRefs = reactive({});
+
+                let baseScale = 1;
+                let currentPdfDoc = null;
+                const renderTasks = new Map();
+
+                // Storage key for reading position
+                const getStorageKey = (filePath) => `pdf-reader:${filePath}`;
+
+                // Save reading position
+                const saveReadingPosition = () => {
+                    if (!selectedFile.value) return;
+                    const key = getStorageKey(selectedFile.value.path);
+                    const position = {
+                        page: currentPage.value,
+                        scrollY: previewContainer.value?.scrollTop || 0
+                    };
+                    localStorage.setItem(key, JSON.stringify(position));
+                };
+
+                // Load reading position
+                const loadReadingPosition = () => {
+                    if (!selectedFile.value) return null;
+                    const key = getStorageKey(selectedFile.value.path);
+                    const saved = localStorage.getItem(key);
+                    return saved ? JSON.parse(saved) : null;
+                };
+
+                // Restore reading position
+                const restoreReadingPosition = async () => {
+                    const position = loadReadingPosition();
+                    if (!position || !previewContainer.value) return;
+                    
+                    // Wait for next tick and multiple animation frames to ensure all content is rendered
+                    await nextTick();
+                    await new Promise(resolve => requestAnimationFrame(resolve));
+                    await new Promise(resolve => requestAnimationFrame(resolve));
+                    
+                    previewContainer.value.scrollTop = position.scrollY;
+                    currentPage.value = position.page;
+                };
+
+                // Set canvas ref
+                const setCanvasRef = (pageNum, el) => {
+                    if (el) {
+                        canvasRefs[pageNum] = el;
+                    }
+                };
+
+                // Build file tree from flat FileList
+                const buildFileTree = (files) => {
+                    const tree = {};
+                    const pdfList = [];
+
+                    Array.from(files).forEach(file => {
+                        if (!file.name.toLowerCase().endsWith('.pdf')) return;
+
+                        pdfList.push(file);
+                        const parts = file.webkitRelativePath.split('/');
+                        let current = tree;
+
+                        parts.forEach((part, index) => {
+                            if (index === parts.length - 1) {
+                                // File
+                                if (!current._files) current._files = [];
+                                current._files.push({
+                                    type: 'file',
+                                    name: part,
+                                    path: file.webkitRelativePath,
+                                    file: file
+                                });
+                            } else {
+                                // Folder
+                                if (!current[part]) {
+                                    current[part] = { _name: part };
+                                }
+                                current = current[part];
+                            }
+                        });
+                    });
+
+                    pdfFiles.value = pdfList;
+
+                    // Convert tree object to array
+                    const convertToArray = (obj, parentPath = '') => {
+                        const result = [];
+
+                        // Add folders
+                        Object.keys(obj).filter(k => !k.startsWith('_')).sort().forEach(key => {
+                            const path = parentPath ? `${parentPath}/${key}` : key;
+                            result.push({
+                                type: 'folder',
+                                name: key,
+                                path: path,
+                                expanded: true,
+                                children: convertToArray(obj[key], path)
+                            });
+                        });
+
+                        // Add files
+                        if (obj._files) {
+                            obj._files.sort((a, b) => a.name.localeCompare(b.name)).forEach(file => {
+                                result.push(file);
+                            });
+                        }
+
+                        return result;
+                    };
+
+                    return convertToArray(tree);
+                };
+
+                // Handle folder selection
+                const handleFolderSelect = (event) => {
+                    const files = event.target.files;
+                    if (!files || files.length === 0) return;
+
+                    fileTree.value = buildFileTree(files);
+                    selectedFile.value = null;
+                    error.value = null;
+
+                    // Auto-select first PDF if available
+                    if (pdfFiles.value.length > 0) {
+                        const firstPdf = pdfFiles.value[0];
+                        selectFile({
+                            type: 'file',
+                            name: firstPdf.name,
+                            path: firstPdf.webkitRelativePath,
+                            file: firstPdf
+                        });
+                    }
+                };
+
+                // Select file
+                const selectFile = async (item) => {
+                    if (item.type !== 'file') return;
+
+                    // Save current file's position BEFORE switching
+                    if (selectedFile.value) {
+                        saveReadingPosition();
+                    }
+                    
+                    selectedFile.value = item;
+                    await loadPdf(item.file);
+                };
+
+                // Load PDF
+                const loadPdf = async (file) => {
+                    isLoading.value = true;
+                    error.value = null;
+                    pages.value = [];
+                    currentPage.value = 1;
+
+                    // Cancel any ongoing render tasks
+                    renderTasks.forEach((task) => {
+                        task.cancel();
+                    });
+                    renderTasks.clear();
+
+                    // Cleanup previous document
+                    if (currentPdfDoc) {
+                        currentPdfDoc.destroy();
+                        currentPdfDoc = null;
+                    }
+
+                    try {
+                        const arrayBuffer = await file.arrayBuffer();
+                        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+                        const pdf = await loadingTask.promise;
+
+                        currentPdfDoc = pdf;
+                        totalPages.value = pdf.numPages;
+
+                        // Create page placeholders
+                        pages.value = Array.from({ length: pdf.numPages }, (_, i) => ({
+                            num: i + 1
+                        }));
+
+                        // Turn off loading FIRST so canvas elements can render
+                        isLoading.value = false;
+
+                        // Wait for DOM update and layout
+                        await nextTick();
+                        await new Promise(resolve => requestAnimationFrame(resolve));
+                        
+                        // Detect fit mode and calculate base scale
+                        fitMode.value = await detectFitMode();
+                        baseScale = await calculateBaseScale(1, fitMode.value);
+
+                        // Render all pages
+                        await renderAllPages();
+                        
+                        // Restore reading position after all pages are rendered
+                        await nextTick();
+                        await restoreReadingPosition();
+
+                    } catch (err) {
+                        console.error('PDF load error:', err);
+                        error.value = err.message || '无法加载 PDF 文件';
+                        isLoading.value = false;
+                    }
+                };
+
+                // Detect PDF type and determine fit mode
+                const detectFitMode = async () => {
+                    if (!currentPdfDoc) return 'width';
+                    
+                    const page = await currentPdfDoc.getPage(1);
+                    const viewport = page.getViewport({ scale: 1 });
+                    const aspectRatio = viewport.width / viewport.height;
+                    
+                    // 长单页 PDF：宽高比 < 0.5 且只有一页
+                    if (aspectRatio < 0.5 && currentPdfDoc.numPages === 1) {
+                        return 'width';
+                    }
+                    // 正常分页 PDF
+                    return 'page';
+                };
+
+                // Calculate scale based on fit mode
+                const calculateBaseScale = async (pageNum, mode) => {
+                    if (!currentPdfDoc || !previewContainer.value) return 1;
+
+                    const page = await currentPdfDoc.getPage(pageNum);
+                    const viewport = page.getViewport({ scale: 1 });
+                    const containerWidth = previewContainer.value.clientWidth - 32; // padding
+                    const containerHeight = previewContainer.value.clientHeight - 32; // padding
+                    
+                    if (mode === 'page') {
+                        // Fit Page: 取宽度和高度缩放的最小值，确保整页可见
+                        const scaleWidth = containerWidth / viewport.width;
+                        const scaleHeight = containerHeight / viewport.height;
+                        return Math.min(scaleWidth, scaleHeight);
+                    } else {
+                        // Fit Width: 宽度填满，垂直滚动
+                        return (containerWidth / viewport.width) * 0.9;
+                    }
+                };
+
+                // Render a single page
+                const renderPage = async (pageNum) => {
+                    if (!currentPdfDoc) return;
+
+                    // Cancel any existing render task for this page
+                    const existingTask = renderTasks.get(pageNum);
+                    if (existingTask) {
+                        existingTask.cancel();
+                    }
+
+                    const canvas = canvasRefs[pageNum];
+                    if (!canvas) return;
+
+                    try {
+                        const page = await currentPdfDoc.getPage(pageNum);
+                        const scale = baseScale * scaleMultiplier.value;
+                        const viewport = page.getViewport({ scale });
+                        
+                        // 获取设备像素比，用于高清渲染
+                        const dpr = window.devicePixelRatio || 1;
+
+                        // Canvas 实际像素 = 显示尺寸 × 设备像素比
+                        canvas.width = Math.floor(viewport.width * dpr);
+                        canvas.height = Math.floor(viewport.height * dpr);
+                        
+                        // CSS 尺寸保持原样
+                        canvas.style.width = `${viewport.width}px`;
+                        canvas.style.height = `${viewport.height}px`;
+
+                        const ctx = canvas.getContext('2d');
+                        
+                        // 缩放绘图上下文以匹配设备像素比
+                        ctx.scale(dpr, dpr);
+
+                        const renderTask = page.render({
+                            canvasContext: ctx,
+                            viewport: viewport
+                        });
+
+                        renderTasks.set(pageNum, renderTask);
+                        await renderTask.promise;
+
+                    } catch (err) {
+                        if (err.message && err.message.includes('cancelled')) {
+                            return;
+                        }
+                        console.error(`Error rendering page ${pageNum}:`, err);
+                    } finally {
+                        renderTasks.delete(pageNum);
+                    }
+                };
+
+                // Render all pages
+                const renderAllPages = async () => {
+                    for (let i = 1; i <= totalPages.value; i++) {
+                        await renderPage(i);
+                    }
+                };
+
+                // Re-render all pages (for zoom changes)
+                const reRenderPages = async () => {
+                    renderTasks.forEach((task) => {
+                        task.cancel();
+                    });
+                    renderTasks.clear();
+                    await renderAllPages();
+                };
+
+                // Handle scroll to update current page and save position
+                const handleScroll = () => {
+                    const container = previewContainer.value;
+                    if (!container) return;
+
+                    const containerRect = container.getBoundingClientRect();
+                    const centerY = containerRect.top + containerRect.height / 2;
+
+                    let closestPage = 1;
+                    let closestDistance = Infinity;
+
+                    document.querySelectorAll('.pdf-page').forEach(el => {
+                        const rect = el.getBoundingClientRect();
+                        const pageCenterY = rect.top + rect.height / 2;
+                        const distance = Math.abs(pageCenterY - centerY);
+
+                        if (distance < closestDistance) {
+                            closestDistance = distance;
+                            closestPage = parseInt(el.dataset.page) || 1;
+                        }
+                    });
+
+                    currentPage.value = closestPage;
+                    saveReadingPosition();
+                };
+
+                // Zoom controls
+                const zoomIn = () => {
+                    if (scaleMultiplier.value < 2) {
+                        scaleMultiplier.value = Math.min(2, scaleMultiplier.value + 0.1);
+                        reRenderPages();
+                    }
+                };
+
+                const zoomOut = () => {
+                    if (scaleMultiplier.value > 0.5) {
+                        scaleMultiplier.value = Math.max(0.5, scaleMultiplier.value - 0.1);
+                        reRenderPages();
+                    }
+                };
+
+                const resetZoom = async () => {
+                    scaleMultiplier.value = 1;
+                    baseScale = await calculateBaseScale(1, fitMode.value);
+                    reRenderPages();
+                };
+
+                // Keyboard shortcuts
+                const handleKeydown = (event) => {
+                    // Ignore if typing in input
+                    if (event.target.tagName === 'INPUT') return;
+
+                    switch (event.key) {
+                        case '+':
+                        case '=':
+                            event.preventDefault();
+                            zoomIn();
+                            break;
+                        case '-':
+                            event.preventDefault();
+                            zoomOut();
+                            break;
+                        case 'ArrowUp':
+                            if (event.ctrlKey || event.metaKey) {
+                                event.preventDefault();
+                                navigatePrevFile();
+                            }
+                            break;
+                        case 'ArrowDown':
+                            if (event.ctrlKey || event.metaKey) {
+                                event.preventDefault();
+                                navigateNextFile();
+                            }
+                            break;
+                    }
+                };
+
+                // Navigate to previous/next PDF file
+                const navigatePrevFile = () => {
+                    if (!selectedFile.value || pdfFiles.value.length === 0) return;
+                    const currentIndex = pdfFiles.value.findIndex(f => f.webkitRelativePath === selectedFile.value.path);
+                    if (currentIndex > 0) {
+                        const prevFile = pdfFiles.value[currentIndex - 1];
+                        selectFile({
+                            type: 'file',
+                            name: prevFile.name,
+                            path: prevFile.webkitRelativePath,
+                            file: prevFile
+                        });
+                    }
+                };
+
+                const navigateNextFile = () => {
+                    if (!selectedFile.value || pdfFiles.value.length === 0) return;
+                    const currentIndex = pdfFiles.value.findIndex(f => f.webkitRelativePath === selectedFile.value.path);
+                    if (currentIndex < pdfFiles.value.length - 1) {
+                        const nextFile = pdfFiles.value[currentIndex + 1];
+                        selectFile({
+                            type: 'file',
+                            name: nextFile.name,
+                            path: nextFile.webkitRelativePath,
+                            file: nextFile
+                        });
+                    }
+                };
+
+                // Recalculate base scale on window resize
+                const handleResize = async () => {
+                    if (currentPdfDoc && pages.value.length > 0) {
+                        baseScale = await calculateBaseScale(1, fitMode.value);
+                        reRenderPages();
+                    }
+                };
+
+                // Load theme preference
+                onMounted(() => {
+                    isDark.value = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                    window.addEventListener('keydown', handleKeydown);
+                    window.addEventListener('resize', handleResize);
+                });
+
+                onUnmounted(() => {
+                    saveReadingPosition();
+                    renderTasks.forEach((task) => {
+                        task.cancel();
+                    });
+                    renderTasks.clear();
+
+                    window.removeEventListener('keydown', handleKeydown);
+                    window.removeEventListener('resize', handleResize);
+                    if (currentPdfDoc) currentPdfDoc.destroy();
+                });
+
+                return {
+                    pdfFiles,
+                    fileTree,
+                    selectedFile,
+                    pages,
+                    scaleMultiplier,
+                    currentPage,
+                    totalPages,
+                    isDark,
+                    isLoading,
+                    error,
+                    sidebarCollapsed,
+                    previewContainer,
+                    setCanvasRef,
+                    handleFolderSelect,
+                    selectFile,
+                    fitMode,
+                    zoomIn,
+                    zoomOut,
+                    resetZoom,
+                    handleScroll
+                };
+            }
+        });
+
+        app.mount('#app');
+    </script>
+</body>
+
+</html>
