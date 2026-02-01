@@ -118,7 +118,7 @@
                                         d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
                                 </svg>
                             </button>
-                            <span class="truncate text-sm font-medium">{{ selectedFile.name }}</span>
+                            <span class="truncate text-sm font-medium w-80 block">{{ selectedFile.name }}</span>
                         </div>
 
                         <!-- Zoom Controls -->
@@ -435,6 +435,8 @@
                             file: file
                         }));
 
+                    // 按名称排序，确保切换顺序和显示顺序一致
+                    files.sort((a, b) => a.name.localeCompare(b.name));
                     pdfFiles.value = files;
                     selectedFile.value = null;
                     error.value = null;
