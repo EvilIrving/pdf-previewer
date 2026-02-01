@@ -831,14 +831,14 @@
                             event.preventDefault();
                             zoomOut();
                             break;
-                        case 'ArrowUp':
-                            if (event.ctrlKey || event.metaKey) {
+                        case 'ArrowLeft':
+                            if (event.altKey) {
                                 event.preventDefault();
                                 navigatePrevFile();
                             }
                             break;
-                        case 'ArrowDown':
-                            if (event.ctrlKey || event.metaKey) {
+                        case 'ArrowRight':
+                            if (event.altKey) {
                                 event.preventDefault();
                                 navigateNextFile();
                             }
