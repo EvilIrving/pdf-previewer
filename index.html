@@ -22,23 +22,6 @@
             display: none;
         }
 
-        /* .scrollbar-thin::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-
-        .scrollbar-thin::-webkit-scrollbar-track {
-            background: transparent;
-        }
-
-        .scrollbar-thin::-webkit-scrollbar-thumb {
-            background: #cbd5e1;
-        }
-
-        .dark .scrollbar-thin::-webkit-scrollbar-thumb {
-            background: #475569;
-        } */
-
         .tree-item {
             transition: background-color 0.15s ease;
         }
@@ -211,7 +194,7 @@
                             <div v-for="page in pages" :key="page.num" :data-page="page.num"
                                 class="pdf-page flex justify-center mb-4"
                                 :style="{ minHeight: page.height ? page.height + 'px' : 'auto' }">
-                                <canvas :ref="el => setCanvasRef(page.num, el)" 
+                                <canvas :ref="el => setCanvasRef(page.num, el)"
                                     class="shadow-lg bg-white"
                                     :style="{ width: page.width ? page.width + 'px' : 'auto', height: page.height ? page.height + 'px' : 'auto' }"></canvas>
                             </div>
@@ -282,6 +265,32 @@
             components: { TreeItem },
 
             setup() {
+                // 配置常量
+                const CONFIG = {
+                    // 预加载配置
+                    PRELOAD_MARGIN: 200,
+                    OBSERVER_THRESHOLD: 0,
+                    // 容器内边距
+                    CONTAINER_PADDING: 32,
+                    // 缩放配置
+                    SCALE_MIN: 0.5,
+                    SCALE_MAX: 2.0,
+                    SCALE_STEP: 0.1,
+                    // 防抖延迟
+                    SAVE_DEBOUNCE_DELAY: 150,
+                    // 长单页判断阈值
+                    LONG_PAGE_RATIO: 0.5,
+                };
+
+                // 工具函数：创建防抖函数
+                const createDebounce = (fn, delay) => {
+                    let timeoutId = null;
+                    return (...args) => {
+                        clearTimeout(timeoutId);
+                        timeoutId = setTimeout(() => fn(...args), delay);
+                    };
+                };
+
                 // State
                 const pdfFiles = ref([]);
                 const fileTree = ref([]);
@@ -319,6 +328,9 @@
                     readingPositionCache.set(selectedFile.value.path, position);
                     localStorage.setItem(getStorageKey(selectedFile.value.path), JSON.stringify(position));
                 };
+
+                // 防抖保存位置
+                const debouncedSavePosition = createDebounce(saveReadingPosition, CONFIG.SAVE_DEBOUNCE_DELAY);
 
                 // Load reading position (优先从内存缓存读取)
                 const loadReadingPosition = (filePath) => {
@@ -402,60 +414,57 @@
                     return convertToArray(tree);
                 };
 
-                // Handle folder selection
-                const handleFolderSelect = (event) => {
-                    const files = event.target.files;
-                    if (!files || files.length === 0) return;
+                // 通用文件选择处理函数
+                const processSelectedFiles = (fileList, isFolder = false) => {
+                    const files = Array.from(fileList).filter(f =>
+                        f.name.toLowerCase().endsWith('.pdf')
+                    );
 
-                    fileTree.value = buildFileTree(files);
+                    if (files.length === 0) {
+                        error.value = '未找到 PDF 文件';
+                        return false;
+                    }
+
+                    // 构建文件树
+                    fileTree.value = isFolder
+                        ? buildFileTree(fileList)  // 文件夹模式：保留层次结构
+                        : files.map(file => ({    // 文件模式：扁平列表
+                            type: 'file',
+                            name: file.name,
+                            path: file.name,
+                            file: file
+                        }));
+
+                    pdfFiles.value = files;
                     selectedFile.value = null;
                     error.value = null;
 
-                    // Auto-select first PDF if available
-                    if (pdfFiles.value.length > 0) {
-                        const firstPdf = pdfFiles.value[0];
-                        selectFile({
-                            type: 'file',
-                            name: firstPdf.name,
-                            path: firstPdf.webkitRelativePath,
-                            file: firstPdf
-                        });
+                    // 自动选择第一个 PDF
+                    const firstFile = files[0];
+                    selectFile({
+                        type: 'file',
+                        name: firstFile.name,
+                        path: isFolder ? firstFile.webkitRelativePath : firstFile.name,
+                        file: firstFile
+                    });
+
+                    return true;
+                };
+
+                // Handle folder selection
+                const handleFolderSelect = (event) => {
+                    const files = event.target.files;
+                    if (files && files.length > 0) {
+                        processSelectedFiles(files, true);
                     }
                 };
 
                 // Handle direct file selection
                 const handleFileSelect = (event) => {
                     const files = event.target.files;
-                    if (!files || files.length === 0) return;
-
-                    // Filter PDF files
-                    const pdfFilesArr = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.pdf'));
-                    if (pdfFilesArr.length === 0) {
-                        error.value = '未找到 PDF 文件';
-                        return;
+                    if (files && files.length > 0) {
+                        processSelectedFiles(files, false);
                     }
-
-                    // Build simple file tree (flat list without folder hierarchy)
-                    fileTree.value = pdfFilesArr.map((file, index) => ({
-                        type: 'file',
-                        name: file.name,
-                        path: file.name,
-                        file: file
-                    }));
-
-                    // Update pdfFiles ref for navigation
-                    pdfFiles.value = pdfFilesArr;
-                    selectedFile.value = null;
-                    error.value = null;
-
-                    // Auto-select first PDF
-                    const firstPdf = pdfFilesArr[0];
-                    selectFile({
-                        type: 'file',
-                        name: firstPdf.name,
-                        path: firstPdf.name,
-                        file: firstPdf
-                    });
                 };
 
                 // Select file
@@ -475,10 +484,10 @@
                 const loadPdf = async (file) => {
                     isLoading.value = true;
                     error.value = null;
-                    
+
                     // 在清空页面前获取保存的阅读位置
                     const savedPosition = loadReadingPosition(selectedFile.value?.path);
-                    
+
                     pages.value = [];
                     renderedPages.clear();
                     currentPage.value = savedPosition?.page || 1;
@@ -488,7 +497,7 @@
                         task.cancel();
                     });
                     renderTasks.clear();
-                    
+
                     // 断开之前的 observer
                     if (intersectionObserver) {
                         intersectionObserver.disconnect();
@@ -502,6 +511,13 @@
 
                     try {
                         const arrayBuffer = await file.arrayBuffer();
+
+                        // 检查文件大小
+                        const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+                        if (arrayBuffer.byteLength > MAX_FILE_SIZE) {
+                            throw new Error('文件过大，请选择小于 100MB 的 PDF 文件');
+                        }
+
                         const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
                         const pdf = await loadingTask.promise;
 
@@ -530,21 +546,34 @@
 
                         // Wait for DOM update
                         await nextTick();
-                        
+
                         // 立即滚动到保存的位置（在渲染之前）
                         if (savedPosition && previewContainer.value) {
                             previewContainer.value.scrollTop = savedPosition.scrollY;
                         }
-                        
+
                         // 设置 Intersection Observer 进行懒加载
                         setupIntersectionObserver();
-                        
+
                         // 强制触发一次可视区域检测，渲染当前可见的页面
                         await renderVisiblePages();
 
                     } catch (err) {
                         console.error('PDF load error:', err);
-                        error.value = err.message || '无法加载 PDF 文件';
+
+                        // 根据错误类型返回友好的错误消息
+                        let errorMsg = '无法加载 PDF 文件';
+                        if (err.name === 'PasswordException') {
+                            errorMsg = '此 PDF 文件已加密，暂不支持';
+                        } else if (err.name === 'InvalidPDFException') {
+                            errorMsg = '无效的 PDF 文件，请检查文件是否损坏';
+                        } else if (err.message && err.message.includes('网络')) {
+                            errorMsg = '网络错误，请检查网络连接后重试';
+                        } else if (err.message) {
+                            errorMsg = err.message;
+                        }
+
+                        error.value = errorMsg;
                         isLoading.value = false;
                     }
                 };
@@ -552,13 +581,13 @@
                 // Detect PDF type and determine fit mode
                 const detectFitMode = async () => {
                     if (!currentPdfDoc) return 'width';
-                    
+
                     const page = await currentPdfDoc.getPage(1);
                     const viewport = page.getViewport({ scale: 1 });
                     const aspectRatio = viewport.width / viewport.height;
-                    
-                    // 长单页 PDF：宽高比 < 0.5 且只有一页
-                    if (aspectRatio < 0.5 && currentPdfDoc.numPages === 1) {
+
+                    // 长单页 PDF：宽高比 < 阈值且只有一页
+                    if (aspectRatio < CONFIG.LONG_PAGE_RATIO && currentPdfDoc.numPages === 1) {
                         return 'width';
                     }
                     // 正常分页 PDF
@@ -571,9 +600,9 @@
 
                     const page = await currentPdfDoc.getPage(pageNum);
                     const viewport = page.getViewport({ scale: 1 });
-                    const containerWidth = previewContainer.value.clientWidth - 32; // padding
-                    const containerHeight = previewContainer.value.clientHeight - 32; // padding
-                    
+                    const containerWidth = previewContainer.value.clientWidth - CONFIG.CONTAINER_PADDING;
+                    const containerHeight = previewContainer.value.clientHeight - CONFIG.CONTAINER_PADDING;
+
                     if (mode === 'page') {
                         // Fit Page: 取宽度和高度缩放的最小值，确保整页可见
                         const scaleWidth = containerWidth / viewport.width;
@@ -590,7 +619,7 @@
                     if (intersectionObserver) {
                         intersectionObserver.disconnect();
                     }
-                    
+
                     intersectionObserver = new IntersectionObserver(
                         (entries) => {
                             entries.forEach(entry => {
@@ -604,11 +633,11 @@
                         },
                         {
                             root: previewContainer.value,
-                            rootMargin: '200px 0px', // 提前 200px 开始渲染
-                            threshold: 0
+                            rootMargin: `${CONFIG.PRELOAD_MARGIN}px 0px`,
+                            threshold: CONFIG.OBSERVER_THRESHOLD
                         }
                     );
-                    
+
                     // 观察所有页面容器
                     document.querySelectorAll('.pdf-page').forEach(el => {
                         intersectionObserver.observe(el);
@@ -619,17 +648,17 @@
                 const renderVisiblePages = async () => {
                     const container = previewContainer.value;
                     if (!container) return;
-                    
+
                     const containerRect = container.getBoundingClientRect();
                     const pageElements = document.querySelectorAll('.pdf-page');
-                    
+
                     const renderPromises = [];
-                    
+
                     pageElements.forEach(el => {
                         const rect = el.getBoundingClientRect();
-                        const isVisible = rect.bottom > containerRect.top - 200 && 
-                                         rect.top < containerRect.bottom + 200;
-                        
+                        const isVisible = rect.bottom > containerRect.top - CONFIG.PRELOAD_MARGIN &&
+                                         rect.top < containerRect.bottom + CONFIG.PRELOAD_MARGIN;
+
                         if (isVisible) {
                             const pageNum = parseInt(el.dataset.page);
                             if (pageNum && !renderedPages.has(pageNum)) {
@@ -637,7 +666,7 @@
                             }
                         }
                     });
-                    
+
                     await Promise.all(renderPromises);
                 };
 
@@ -727,47 +756,56 @@
                 };
 
                 // Handle scroll to update current page and save position
+                let scrollRAFId = null;
+
                 const handleScroll = () => {
                     const container = previewContainer.value;
                     if (!container) return;
 
-                    const containerRect = container.getBoundingClientRect();
-                    const centerY = containerRect.top + containerRect.height / 2;
+                    // 使用 requestAnimationFrame 优化性能
+                    if (scrollRAFId !== null) {
+                        cancelAnimationFrame(scrollRAFId);
+                    }
 
-                    let closestPage = 1;
-                    let closestDistance = Infinity;
+                    scrollRAFId = requestAnimationFrame(() => {
+                        const containerRect = container.getBoundingClientRect();
+                        const centerY = containerRect.top + containerRect.height / 2;
 
-                    document.querySelectorAll('.pdf-page').forEach(el => {
-                        const rect = el.getBoundingClientRect();
-                        const pageCenterY = rect.top + rect.height / 2;
-                        const distance = Math.abs(pageCenterY - centerY);
+                        let closestPage = 1;
+                        let closestDistance = Infinity;
 
-                        if (distance < closestDistance) {
-                            closestDistance = distance;
-                            closestPage = parseInt(el.dataset.page) || 1;
+                        const pageElements = document.querySelectorAll('.pdf-page');
+
+                        for (const el of pageElements) {
+                            const rect = el.getBoundingClientRect();
+                            const pageCenterY = rect.top + rect.height / 2;
+                            const distance = Math.abs(pageCenterY - centerY);
+
+                            if (distance < closestDistance) {
+                                closestDistance = distance;
+                                closestPage = parseInt(el.dataset.page) || 1;
+                            }
                         }
+
+                        currentPage.value = closestPage;
+                        scrollRAFId = null;
                     });
 
-                    currentPage.value = closestPage;
-                    
                     // 使用防抖保存位置
-                    clearTimeout(handleScroll._saveTimer);
-                    handleScroll._saveTimer = setTimeout(() => {
-                        saveReadingPosition();
-                    }, 100);
+                    debouncedSavePosition();
                 };
 
                 // Zoom controls
                 const zoomIn = () => {
-                    if (scaleMultiplier.value < 2) {
-                        scaleMultiplier.value = Math.min(2, scaleMultiplier.value + 0.1);
+                    if (scaleMultiplier.value < CONFIG.SCALE_MAX) {
+                        scaleMultiplier.value = Math.min(CONFIG.SCALE_MAX, scaleMultiplier.value + CONFIG.SCALE_STEP);
                         reRenderPages();
                     }
                 };
 
                 const zoomOut = () => {
-                    if (scaleMultiplier.value > 0.5) {
-                        scaleMultiplier.value = Math.max(0.5, scaleMultiplier.value - 0.1);
+                    if (scaleMultiplier.value > CONFIG.SCALE_MIN) {
+                        scaleMultiplier.value = Math.max(CONFIG.SCALE_MIN, scaleMultiplier.value - CONFIG.SCALE_STEP);
                         reRenderPages();
                     }
                 };
@@ -854,14 +892,34 @@
 
                 onUnmounted(() => {
                     saveReadingPosition();
+
+                    // 清理渲染任务
                     renderTasks.forEach((task) => {
                         task.cancel();
                     });
                     renderTasks.clear();
 
+                    // 清理 observer
+                    if (intersectionObserver) {
+                        intersectionObserver.disconnect();
+                        intersectionObserver = null;
+                    }
+
+                    // 清理 RAF
+                    if (scrollRAFId !== null) {
+                        cancelAnimationFrame(scrollRAFId);
+                        scrollRAFId = null;
+                    }
+
+                    // 清理文档
+                    if (currentPdfDoc) {
+                        currentPdfDoc.destroy();
+                        currentPdfDoc = null;
+                    }
+
+                    // 清理事件监听器
                     window.removeEventListener('keydown', handleKeydown);
                     window.removeEventListener('resize', handleResize);
-                    if (currentPdfDoc) currentPdfDoc.destroy();
                 });
 
                 return {
