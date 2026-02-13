@@ -97,7 +97,7 @@
                 </aside>
 
                 <!-- Main Content -->
-                <main class="flex-1 flex flex-col min-w-0">
+                <main class="flex-1 flex flex-col min-w-0 h-full">
                     <!-- Toggle Sidebar Button (when collapsed) -->
                     <button v-if="sidebarCollapsed" @click="sidebarCollapsed = false"
                         class="absolute top-3 left-3 z-10 p-2 bg-slate-100 dark:bg-slate-800 rounded hover:bg-slate-200 dark:hover:bg-slate-700">
@@ -119,6 +119,19 @@
                                 </svg>
                             </button>
                             <span class="truncate text-sm font-medium w-80 block">{{ selectedFile.name }}</span>
+                        </div>
+
+                        <!-- TOC Toggle Button -->
+                        <div class="flex items-center gap-1">
+                            <button @click="tocCollapsed = !tocCollapsed"
+                                class="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700"
+                                :class="{ 'text-blue-500': !tocCollapsed }"
+                                title="目录">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M4 6h16M4 12h16M4 18h7" />
+                                </svg>
+                            </button>
                         </div>
 
                         <!-- Zoom Controls -->
@@ -153,51 +166,75 @@
                         </div>
                     </div>
 
-                    <!-- PDF Preview Area -->
-                    <div ref="previewContainer"
-                        class="flex-1 overflow-y-auto scrollbar-thin bg-slate-200 dark:bg-slate-950"
-                        @scroll="handleScroll">
-                        <!-- Empty State -->
-                        <div v-if="!selectedFile && !isLoading"
-                            class="flex flex-col items-center justify-center h-full p-8">
-                            <svg class="w-20 h-20 mb-4 text-slate-300 dark:text-slate-600" fill="none"
-                                stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                            <p class="text-lg font-medium mb-2">欢迎使用 PDF Viewer</p>
-                            <p class="text-slate-500 dark:text-slate-400 text-sm">选择一个文件夹 或者 PDF 文件开始浏览</p>
-                            
-                        </div>
+                    <!-- PDF Preview Area with TOC -->
+                    <div class="flex-1 flex min-w-0 h-[calc(100%-50px)]">
+                        <div ref="previewContainer"
+                            class="flex-1 min-h-0 overflow-y-auto scrollbar-thin bg-slate-200 dark:bg-slate-950"
+                            @scroll="handleScroll">
+                            <!-- Empty State -->
+                            <div v-if="!selectedFile && !isLoading"
+                                class="flex flex-col items-center justify-center h-full p-8">
+                                <svg class="w-20 h-20 mb-4 text-slate-300 dark:text-slate-600" fill="none"
+                                    stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                <p class="text-lg font-medium mb-2">欢迎使用 PDF Viewer</p>
+                                <p class="text-slate-500 dark:text-slate-400 text-sm">选择一个文件夹 或者 PDF 文件开始浏览</p>
 
-                        <!-- Loading State -->
-                        <div v-if="isLoading" class="flex flex-col items-center justify-center h-full">
-                            <div
-                                class="animate-spin rounded-full h-12 w-12 border-4 border-slate-200 dark:border-slate-700 border-t-blue-500">
                             </div>
-                            <p class="text-slate-500 dark:text-slate-400 mt-4">加载中...</p>
-                        </div>
 
-                        <!-- Error State -->
-                        <div v-if="error && !isLoading" class="flex flex-col items-center justify-center h-full">
-                            <svg class="w-16 h-16 mb-4 text-red-400" fill="none" stroke="currentColor"
-                                viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <p class="font-medium mb-2">加载失败</p>
-                            <p class="text-sm text-slate-500 dark:text-slate-400">{{ error }}</p>
-                        </div>
-
-                        <!-- PDF Pages -->
-                        <div v-if="selectedFile && !isLoading && !error" class="p-4">
-                            <div v-for="page in pages" :key="page.num" :data-page="page.num"
-                                class="pdf-page flex justify-center mb-4"
-                                :style="{ minHeight: page.height ? page.height + 'px' : 'auto' }">
-                                <canvas :ref="el => setCanvasRef(page.num, el)"
-                                    class="shadow-lg bg-white"
-                                    :style="{ width: page.width ? page.width + 'px' : 'auto', height: page.height ? page.height + 'px' : 'auto' }"></canvas>
+                            <!-- Loading State -->
+                            <div v-if="isLoading" class="flex flex-col items-center justify-center h-full">
+                                <div
+                                    class="animate-spin rounded-full h-12 w-12 border-4 border-slate-200 dark:border-slate-700 border-t-blue-500">
+                                </div>
+                                <p class="text-slate-500 dark:text-slate-400 mt-4">加载中...</p>
                             </div>
+
+                            <!-- Error State -->
+                            <div v-if="error && !isLoading" class="flex flex-col items-center justify-center h-full">
+                                <svg class="w-16 h-16 mb-4 text-red-400" fill="none" stroke="currentColor"
+                                    viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <p class="font-medium mb-2">加载失败</p>
+                                <p class="text-sm text-slate-500 dark:text-slate-400">{{ error }}</p>
+                            </div>
+
+                            <!-- PDF Pages -->
+                            <div v-if="selectedFile && !isLoading && !error" class="p-4">
+                                <div v-for="page in pages" :key="page.num" :data-page="page.num"
+                                    class="pdf-page flex justify-center mb-4"
+                                    :style="{ minHeight: page.height ? page.height + 'px' : 'auto' }">
+                                    <canvas :ref="el => setCanvasRef(page.num, el)"
+                                        class="shadow-lg bg-white"
+                                        :style="{ width: page.width ? page.width + 'px' : 'auto', height: page.height ? page.height + 'px' : 'auto' }"></canvas>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- TOC Sidebar -->
+                        <div v-if="selectedFile && !tocCollapsed"
+                            class="flex-shrink-0 flex">
+                            <div @mousedown="startTocResize"
+                                class="w-1 cursor-col-resize hover:bg-blue-400 bg-transparent transition-colors"></div>
+                            <aside :style="{ width: tocWidth + 'px' }"
+                                class="flex-shrink-0 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col">
+                            <div class="p-3 border-b border-slate-200 dark:border-slate-700">
+                                <span class="font-semibold text-sm">目录</span>
+                            </div>
+                            <div class="flex-1 overflow-y-auto p-2">
+                                <template v-if="outline.length > 0">
+                                    <outline-item v-for="(item, index) in outline" :key="index" :item="item"
+                                        :depth="0" @navigate="navigateToOutline" />
+                                </template>
+                                <div v-else class="text-center text-slate-400 dark:text-slate-500 py-8">
+                                    <p class="text-sm">暂无目录</p>
+                                </div>
+                            </div>
+                        </aside>
                         </div>
                     </div>
                 </main>
@@ -241,6 +278,36 @@
         </div>
     </template>
 
+    <!-- Outline Item Template -->
+    <template id="outline-item-template">
+        <div>
+            <!-- Outline with children -->
+            <div v-if="item.items && item.items.length > 0"
+                class="tree-item flex items-center gap-1 px-2 py-1 rounded cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700"
+                :style="{ paddingLeft: (depth * 12 + 8) + 'px' }" @click="toggleExpand">
+                <svg class="w-3 h-3 flex-shrink-0 transition-transform" :class="{ 'rotate-90': isExpanded }"
+                    fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                </svg>
+                <span class="truncate text-sm">{{ item.title }}</span>
+            </div>
+
+            <!-- Outline children -->
+            <div v-if="item.items && item.items.length > 0 && isExpanded">
+                <outline-item v-for="(child, idx) in item.items" :key="idx" :item="child"
+                    :depth="depth + 1" @navigate="$emit('navigate', $event)" />
+            </div>
+
+            <!-- Outline without children (clickable) -->
+            <div v-if="!item.items || item.items.length === 0"
+                class="tree-item flex items-center gap-1 px-2 py-1 rounded cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700"
+                :style="{ paddingLeft: (depth * 12 + 8) + 'px' }" @click="$emit('navigate', item)">
+                <span class="w-3 h-3 flex-shrink-0"></span>
+                <span class="truncate text-sm">{{ item.title }}</span>
+            </div>
+        </div>
+    </template>
+
     <!-- PDF.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.6.347/pdf.min.js"></script>
     <script type="module">
@@ -261,8 +328,26 @@
             emits: ['select']
         };
 
+        // Outline Item Component
+        const OutlineItem = {
+            name: 'OutlineItem',
+            template: '#outline-item-template',
+            props: {
+                item: Object,
+                depth: { type: Number, default: 0 }
+            },
+            emits: ['navigate'],
+            setup(props, { emit }) {
+                const isExpanded = ref(true);
+                const toggleExpand = () => {
+                    isExpanded.value = !isExpanded.value;
+                };
+                return { isExpanded, toggleExpand };
+            }
+        };
+
         const app = createApp({
-            components: { TreeItem },
+            components: { TreeItem, OutlineItem },
 
             setup() {
                 // 配置常量
@@ -304,6 +389,32 @@
                 const isLoading = ref(false);
                 const error = ref(null);
                 const sidebarCollapsed = ref(false);
+                const tocCollapsed = ref(true);
+                const tocWidth = ref(240);
+                let isResizingToc = false;
+
+                const startTocResize = (e) => {
+                    isResizingToc = true;
+                    document.addEventListener('mousemove', doTocResize);
+                    document.addEventListener('mouseup', stopTocResize);
+                    e.preventDefault();
+                };
+
+                const doTocResize = (e) => {
+                    if (!isResizingToc) return;
+                    const newWidth = tocWidth.value + e.movementX;
+                    if (newWidth >= 150 && newWidth <= 500) {
+                        tocWidth.value = newWidth;
+                    }
+                };
+
+                const stopTocResize = () => {
+                    isResizingToc = false;
+                    document.removeEventListener('mousemove', doTocResize);
+                    document.removeEventListener('mouseup', stopTocResize);
+                };
+
+                const outline = ref([]);
                 const previewContainer = ref(null);
                 const canvasRefs = reactive({});
 
@@ -491,6 +602,7 @@
                     const savedPosition = loadReadingPosition(selectedFile.value?.path);
 
                     pages.value = [];
+                    outline.value = [];
                     renderedPages.clear();
                     currentPage.value = savedPosition?.page || 1;
 
@@ -525,6 +637,15 @@
 
                         currentPdfDoc = pdf;
                         totalPages.value = pdf.numPages;
+
+                        // Get outline (table of contents)
+                        try {
+                            const outlineData = await pdf.getOutline();
+                            outline.value = outlineData || [];
+                        } catch (e) {
+                            console.warn('Failed to get outline:', e);
+                            outline.value = [];
+                        }
 
                         // Detect fit mode and calculate base scale
                         fitMode.value = await detectFitMode();
@@ -924,6 +1045,65 @@
                     window.removeEventListener('resize', handleResize);
                 });
 
+                // Navigate to outline destination
+                const navigateToOutline = async (item) => {
+                    if (!item.dest && !item.action) return;
+
+                    try {
+                        let dest = item.dest;
+                        // Handle action (e.g., GoTo action)
+                        if (!dest && item.action && item.action.type === 'GoTo') {
+                            dest = item.action.dest;
+                        }
+
+                        if (!dest) return;
+
+                        let pageNum = 1;
+
+                        // Resolve destination
+                        if (typeof dest === 'string') {
+                            // Named destination or page reference
+                            try {
+                                const pageIndex = await currentPdfDoc.getPageIndex(dest);
+                                pageNum = pageIndex + 1;
+                            } catch (e) {
+                                // Try as named destination
+                                try {
+                                    const destRef = await currentPdfDoc.getDestination(dest);
+                                    if (destRef) {
+                                        const pageIndex = await currentPdfDoc.getPageIndex(destRef[0]);
+                                        pageNum = pageIndex + 1;
+                                    }
+                                } catch (e2) {
+                                    console.warn('Failed to resolve destination:', dest);
+                                    return;
+                                }
+                            }
+                        } else if (Array.isArray(dest)) {
+                            // Array format: [pageRef, ...]
+                            const pageRef = dest[0];
+                            // Find page by iterating - avoids Web Worker clone issue
+                            for (let i = 1; i <= currentPdfDoc.numPages; i++) {
+                                const page = await currentPdfDoc.getPage(i);
+                                const ref = page.ref;
+                                if (ref && ref.num === pageRef.num && ref.gen === pageRef.gen) {
+                                    pageNum = i;
+                                    break;
+                                }
+                            }
+                        }
+
+                        // Scroll to the page
+                        currentPage.value = pageNum;
+                        const pageElement = document.querySelector(`.pdf-page[data-page="${pageNum}"]`);
+                        if (pageElement && previewContainer.value) {
+                            pageElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                    } catch (e) {
+                        console.error('Error navigating to outline:', e);
+                    }
+                };
+
                 return {
                     pdfFiles,
                     fileTree,
@@ -936,6 +1116,10 @@
                     isLoading,
                     error,
                     sidebarCollapsed,
+                    tocCollapsed,
+                    tocWidth,
+                    startTocResize,
+                    outline,
                     previewContainer,
                     setCanvasRef,
                     handleFolderSelect,
@@ -945,7 +1129,8 @@
                     zoomIn,
                     zoomOut,
                     resetZoom,
-                    handleScroll
+                    handleScroll,
+                    navigateToOutline
                 };
             }
         });
