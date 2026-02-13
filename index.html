@@ -61,6 +61,7 @@
                                         d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                                 </svg>
                                 <span>选择文件夹</span>
+                                <span class="text-xs opacity-75" id="folder-shortcut">(Ctrl+O)</span>
                                 <input type="file" webkitdirectory directory multiple @change="handleFolderSelect"
                                     class="hidden">
                             </label>
@@ -71,6 +72,7 @@
                                         d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                 </svg>
                                 <span>选择文件</span>
+                                <span class="text-xs opacity-75" id="file-shortcut">(Ctrl+Shift+O)</span>
                                 <input type="file" accept=".pdf" multiple @change="handleFileSelect"
                                     class="hidden">
                             </label>
@@ -374,6 +376,31 @@
                         clearTimeout(timeoutId);
                         timeoutId = setTimeout(() => fn(...args), delay);
                     };
+                };
+
+                // 检测是否为 Mac
+                const isMac = () => {
+                    return navigator.platform.toLowerCase().includes('mac');
+                };
+
+                // 获取平台相关的快捷键文本
+                const getShortcutText = () => {
+                    if (isMac()) {
+                        return { folder: '(Cmd+O)', file: '(Cmd+Shift+O)' };
+                    }
+                    return { folder: '(Ctrl+O)', file: '(Ctrl+Shift+O)' };
+                };
+
+                // 触发文件夹选择
+                const triggerFolderSelect = () => {
+                    const input = document.querySelector('input[type="file"][webkitdirectory]');
+                    if (input) input.click();
+                };
+
+                // 触发文件选择
+                const triggerFileSelect = () => {
+                    const input = document.querySelector('input[type="file"][accept=".pdf"]');
+                    if (input) input.click();
                 };
 
                 // State
@@ -954,6 +981,19 @@
                             event.preventDefault();
                             zoomOut();
                             break;
+                        case 'o':
+                        case 'O':
+                            if (event.ctrlKey || event.metaKey) {
+                                event.preventDefault();
+                                if (event.shiftKey) {
+                                    // Ctrl+Shift+O / Cmd+Shift+O: 打开文件
+                                    triggerFileSelect();
+                                } else {
+                                    // Ctrl+O / Cmd+O: 打开文件夹
+                                    triggerFolderSelect();
+                                }
+                            }
+                            break;
                         case 'ArrowLeft':
                             if (event.altKey) {
                                 event.preventDefault();
@@ -1011,6 +1051,13 @@
                     isDark.value = window.matchMedia('(prefers-color-scheme: dark)').matches;
                     window.addEventListener('keydown', handleKeydown);
                     window.addEventListener('resize', handleResize);
+
+                    // 根据平台更新快捷键显示
+                    const shortcuts = getShortcutText();
+                    const folderShortcutEl = document.getElementById('folder-shortcut');
+                    const fileShortcutEl = document.getElementById('file-shortcut');
+                    if (folderShortcutEl) folderShortcutEl.textContent = shortcuts.folder;
+                    if (fileShortcutEl) fileShortcutEl.textContent = shortcuts.file;
                 });
 
                 onUnmounted(() => {
